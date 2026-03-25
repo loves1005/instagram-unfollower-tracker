@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.zip
+output.txt
+debug_test.py
+test_logic.py
+diagnose.py
+mock_data/
