@@ -1,1 +1,2 @@
 streamlit>=1.32.0
+tkinterdnd2>=0.3.0

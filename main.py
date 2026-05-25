@@ -1,3 +1,9 @@
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    HAS_DND = True
+except ImportError:
+    HAS_DND = False
+
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import os
@@ -47,11 +53,12 @@ class HoverButton(tk.Label):
 
 
 class FileDropZone(tk.Frame):
-    """파일 드롭/클릭 가능한 카드 영역"""
-    def __init__(self, parent, label, hint, command, **kw):
+    """파일 드롭/클릭 가능한 카드 영역 (드래그 앤 드롭 + 클릭 지원)"""
+    def __init__(self, parent, label, hint, command, on_drop=None, **kw):
         super().__init__(parent, bg=CARD, highlightbackground=BORDER,
                          highlightthickness=1, **kw)
         self._command = command
+        self._on_drop_cb = on_drop
         self._selected = False
 
         # 아이콘 줄
@@ -67,7 +74,8 @@ class FileDropZone(tk.Frame):
                                  font=FONT_LABEL, wraplength=220)
         self.hint_lbl.pack(pady=(2, 4))
 
-        self.status_lbl = tk.Label(self, text="클릭하여 파일 선택", bg=CARD,
+        dnd_hint = "클릭하거나 파일을 여기에 드래그" if HAS_DND else "클릭하여 파일 선택"
+        self.status_lbl = tk.Label(self, text=dnd_hint, bg=CARD,
                                    fg=TEXT_DIM, font=FONT_LABEL)
         self.status_lbl.pack(pady=(0, 14))
 
@@ -78,9 +86,53 @@ class FileDropZone(tk.Frame):
             w.bind("<Leave>", lambda e: self._on_hover(False))
         self.config(cursor="hand2")
 
+        # 드래그 앤 드롭 등록
+        if HAS_DND and on_drop:
+            self._register_dnd()
+
+    def _register_dnd(self):
+        """tkinterdnd2 드롭 이벤트 등록"""
+        targets = [self, self.icon_lbl, self.title_lbl, self.hint_lbl, self.status_lbl]
+        for w in targets:
+            try:
+                w.drop_target_register(DND_FILES)
+                w.dnd_bind("<<Drop>>", self._handle_drop)
+                w.dnd_bind("<<DragEnter>>", self._on_drag_enter)
+                w.dnd_bind("<<DragLeave>>", self._on_drag_leave)
+            except Exception:
+                pass
+
+    def _handle_drop(self, event):
+        """드롭된 파일 경로 처리"""
+        raw = event.data.strip()
+        # Windows 경로 처리: 중괄호 제거, 여러 파일은 첫 번째만 사용
+        if raw.startswith("{"):
+            raw = raw[1:raw.find("}")]
+        else:
+            raw = raw.split()[0]
+        path = raw.strip()
+        if path and os.path.isfile(path):
+            self._on_drag_leave(None)
+            if self._on_drop_cb:
+                self._on_drop_cb(path)
+        else:
+            messagebox.showerror("파일 오류", f"유효한 파일을 드롭하세요:\n{path}")
+
+    def _on_drag_enter(self, event):
+        self.config(highlightbackground=ACCENT, highlightthickness=2)
+        self.icon_lbl.config(text="📥", fg=ACCENT)
+
+    def _on_drag_leave(self, event):
+        if self._selected:
+            self.config(highlightbackground=GREEN, highlightthickness=1)
+        else:
+            self.config(highlightbackground=BORDER, highlightthickness=1)
+            self.icon_lbl.config(text="📂", fg=TEXT_SUB)
+
     def _on_hover(self, state):
-        col = BORDER if state else BG
-        self.config(highlightbackground=col if not self._selected else ACCENT)
+        if not self._selected:
+            col = BORDER if state else BG
+            self.config(highlightbackground=col if not self._selected else ACCENT)
 
     def set_file(self, filepath):
         self._selected = True
@@ -91,8 +143,9 @@ class FileDropZone(tk.Frame):
 
     def reset(self):
         self._selected = False
+        dnd_hint = "클릭하거나 파일을 여기에 드래그" if HAS_DND else "클릭하여 파일 선택"
         self.icon_lbl.config(text="📂", fg=TEXT_SUB)
-        self.status_lbl.config(text="클릭하여 파일 선택", fg=TEXT_DIM)
+        self.status_lbl.config(text=dnd_hint, fg=TEXT_DIM)
         self.config(highlightbackground=BORDER)
 
 
@@ -226,8 +279,11 @@ class InstagramUnfollowerTracker:
                     font=FONT_LABEL).pack(side="left")
 
         # ── 부제목 ──
+        subtitle_text = "Instagram 공식 데이터 내보내기로 언팔로워를 찾아보세요."
+        if HAS_DND:
+            subtitle_text += "  파일을 드래그 앤 드롭하거나 클릭해서 선택하세요."
         tk.Label(self.root,
-                 text="Instagram 공식 데이터 내보내기로 언팔로워를 찾아보세요.",
+                 text=subtitle_text,
                  bg=BG, fg=TEXT_SUB, font=FONT_SUB).pack(anchor="w", padx=30)
 
         # ── 구분선 ──
@@ -242,6 +298,7 @@ class InstagramUnfollowerTracker:
             label="followers_1.json",
             hint="나를 팔로우하는 사람 목록",
             command=self._select_followers,
+            on_drop=self._on_drop_followers,
         )
         self._drop_followers.pack(side="left", fill="x", expand=True, padx=(0, 8))
 
@@ -250,6 +307,7 @@ class InstagramUnfollowerTracker:
             label="following.json",
             hint="내가 팔로우하는 사람 목록",
             command=self._select_following,
+            on_drop=self._on_drop_following,
         )
         self._drop_following.pack(side="left", fill="x", expand=True, padx=(8, 0))
 
@@ -324,7 +382,20 @@ class InstagramUnfollowerTracker:
         self._fan_list.pack(side="left", fill="both", expand=True, padx=(6, 0))
 
     # ──────────────────────────────────────────
-    #  파일 선택
+    #  드래그 앤 드롭 콜백
+    # ──────────────────────────────────────────
+    def _on_drop_followers(self, path):
+        self.followers_path = path
+        self._drop_followers.set_file(path)
+        self._check_ready()
+
+    def _on_drop_following(self, path):
+        self.following_path = path
+        self._drop_following.set_file(path)
+        self._check_ready()
+
+    # ──────────────────────────────────────────
+    #  파일 선택 (클릭)
     # ──────────────────────────────────────────
     def _select_followers(self):
         path = filedialog.askopenfilename(
@@ -359,6 +430,8 @@ class InstagramUnfollowerTracker:
         else:
             self._analyze_btn.config(bg=TEXT_DIM, fg="#000", cursor="arrow")
             self._analyze_btn.unbind("<Button-1>")
+            self._analyze_btn.unbind("<Enter>")
+            self._analyze_btn.unbind("<Leave>")
 
     # ──────────────────────────────────────────
     #  분석
@@ -400,11 +473,19 @@ class InstagramUnfollowerTracker:
         self._analyze_btn.config(text="  🔍  분석 시작  ", bg=ACCENT, fg=TEXT,
                                   cursor="hand2")
         self._analyze_btn.bind("<Button-1>", lambda e: self._analyze())
+        self._analyze_btn.bind("<Enter>",
+            lambda e: self._analyze_btn.config(bg=ACCENT2))
+        self._analyze_btn.bind("<Leave>",
+            lambda e: self._analyze_btn.config(bg=ACCENT))
 
     def _show_error(self, msg):
         self._analyze_btn.config(text="  🔍  분석 시작  ", bg=ACCENT, fg=TEXT,
                                   cursor="hand2")
         self._analyze_btn.bind("<Button-1>", lambda e: self._analyze())
+        self._analyze_btn.bind("<Enter>",
+            lambda e: self._analyze_btn.config(bg=ACCENT2))
+        self._analyze_btn.bind("<Leave>",
+            lambda e: self._analyze_btn.config(bg=ACCENT))
         self._status_lbl.config(text="", fg=TEXT_SUB)
         messagebox.showerror(
             "분석 실패",
@@ -530,12 +611,12 @@ class InstagramUnfollowerTracker:
             messagebox.showerror("저장 실패", str(e))
 
     # ──────────────────────────────────────────
-    #  사용 방법
+    #  사용 방법 (2025년 최신 Instagram UI 기준)
     # ──────────────────────────────────────────
     def _show_instructions(self):
         win = tk.Toplevel(self.root)
         win.title("사용 방법")
-        win.geometry("480x500")
+        win.geometry("500x560")
         win.configure(bg=BG)
         win.resizable(False, False)
         win.grab_set()
@@ -545,18 +626,21 @@ class InstagramUnfollowerTracker:
                      pady=(20, 10), padx=20, anchor="w")
 
         steps = [
-            ("Step 1", "Instagram 앱 → 프로필 → 메뉴(☰) → 설정 및 개인정보 → 계정 센터"),
-            ("Step 2", "내 정보 및 권한 → 내 정보 다운로드 → 정보 다운로드"),
-            ("Step 3", "'일부 정보 선택' → '팔로워 및 팔로잉'만 체크"),
-            ("Step 4", "형식: JSON  /  화질: 낮음  /  기간: 전체 기간 선택 후 요청"),
-            ("Step 5", "이메일로 온 링크에서 ZIP 파일 다운로드 후 압축 해제"),
-            ("Step 6", "connections/followers_and_following/ 폴더 안의\n"
-                       "followers_1.json 과 following.json 파일을 선택"),
+            ("Step 1", "Instagram 앱 → 프로필(우측 하단) → 메뉴(☰, 우측 상단)"),
+            ("Step 2", "설정 및 개인정보 → 하단의 계정 센터 탭"),
+            ("Step 3", "내 정보 및 권한 → 내 정보 다운로드 → 다운로드 또는 전송"),
+            ("Step 4", "계정 선택 후 '일부 정보 선택' → '연결' 항목에서\n"
+                       "'팔로워 및 팔로잉'만 체크"),
+            ("Step 5", "형식: JSON  /  기간: 전체 기간 선택 후\n'파일 만들기' 클릭"),
+            ("Step 6", "알림/이메일로 준비 완료 수신 후 다시 같은 메뉴에서\nZIP 파일 다운로드 후 압축 해제"),
+            ("Step 7", "connections/followers_and_following/ 폴더 안의\n"
+                       "followers_1.json 과 following.json 파일을 선택\n"
+                       "(드래그 앤 드롭 또는 클릭)"),
         ]
         for badge, desc in steps:
             row = tk.Frame(win, bg=CARD, highlightbackground=BORDER,
                            highlightthickness=1)
-            row.pack(fill="x", padx=20, pady=4)
+            row.pack(fill="x", padx=20, pady=3)
 
             tk.Label(row, text=badge, bg=ACCENT, fg=TEXT,
                      font=FONT_LABEL, padx=8, pady=6).pack(side="left")
@@ -565,9 +649,9 @@ class InstagramUnfollowerTracker:
                      wraplength=380, padx=10).pack(side="left", pady=6)
 
         tk.Label(win,
-                 text="⚠️ 데이터 요청 후 이메일 수신까지 최대 48시간 소요될 수 있습니다.",
-                 bg=BG, fg=GOLD, font=FONT_LABEL, wraplength=440).pack(
-                     pady=12, padx=20)
+                 text="⚠️ 데이터 요청 후 파일 준비까지 최대 48시간 소요될 수 있습니다.",
+                 bg=BG, fg=GOLD, font=FONT_LABEL, wraplength=460).pack(
+                     pady=10, padx=20)
 
         HoverButton(win, "닫기", command=win.destroy,
                     bg=ACCENT, fg=TEXT, hover_bg=ACCENT2,
@@ -575,6 +659,9 @@ class InstagramUnfollowerTracker:
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
+    if HAS_DND:
+        root = TkinterDnD.Tk()
+    else:
+        root = tk.Tk()
     app = InstagramUnfollowerTracker(root)
     root.mainloop()

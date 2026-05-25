@@ -1,7 +1,7 @@
 @echo off
 cd /d "%~dp0"
 echo Starting Instagram Unfollower Tracker...
-"C:\Users\loves\AppData\Local\Programs\Python\Python312\python.exe" main.py
+"C:\Users\loves\AppData\Local\Programs\Python\Python314\python.exe" main.py
 if %errorlevel% neq 0 (
     echo.
     echo --------------------------------------------------
